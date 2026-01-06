@@ -1,3 +1,6 @@
+# Script by Moshe Kashlinsky
+# kashlinskymoshe@gmail.com
+
 import os
 from pathlib import Path
 import yt_dlp
