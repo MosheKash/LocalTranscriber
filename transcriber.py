@@ -9,6 +9,8 @@ import json
 import torch
 import sys
 import textwrap
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
 
 # General Overview:
 
@@ -166,7 +168,7 @@ def transcribe(path: Path):
             while True:
                 selection = input("Selection: ")
                 if selection == "Y":
-                    summarize(result["text"])
+                    summarize(int(selected_model), result["text"])
                     print("You should not see this message - transcribe")
                 elif selection == "N":
                     print("Have a nice day!")
@@ -176,10 +178,129 @@ def transcribe(path: Path):
         else:
             print("Please input a digit 0-9 to select a model")
 
-def summarize(text):
-    print("-------------------------")
-    print("UNIMPLEMENTED, EXITING!!!")
-    print("-------------------------")
+def summarize(accuracy, text): # adjust the template to remove the tags, and the introductions. Also adjust the notion of the accuracy index to strictly mean the accuracy of the transcription, not of the factual information
+    
+    accuracy -= 1
+    if accuracy == -1: # 0 corresponds to turbo, which is roughly as accurate as large, so we are going to set it to be of the highest accuracy for simplicity's sake.
+        accuracy = 9
+    
+    template = """
+
+You are an expert writer and document analyzer. You are given a document of critical importance by a client who is paying you top-dollar to read it, and then compose a summary of the document.
+
+The requested format of the summary should be as follows, with the <CUSTOMIZABLE> section allowing you to put whatever you feel is necessary in that section. The <CUSTOMIZABLE> section should not be too long, and is optional. The template ends at <END>.
+
+Sections labelled with <> should not be included in the final report, but are there for your own convenience. The template is shown below:
+
+YOU MUST STRICTLY FOLLOW THE FORMAT BELOW DURING YOUR RESPONSE.
+
+Brief Overview:
+
+Important Ideas:
+
+- Bullet points
+
+Most Important Parts:
+
+- Excerpts in the form of bullet points
+
+<CUSTOMIZABLE>
+
+<END>
+
+The text may contain some spelling errors, and it is your job to account for them and use judgement to figure out what could be meant by them.
+
+The error-proneness of the document is defined by the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+
+The user may ask you followup questions, or ask you to provide more details about the document after your initial report is submitted. Please respond only with the report that you are requested to make, in the format specified above.
+
+Here is the accuracy index: {accuracy_index}
+
+Here is the document: {document}
+
+"""
+
+    # clarify what the accuracy index means and make sure its only the accuracy of transcription
+
+    followup_template = """
+    
+    You are an expert writer and document analyzer. You previously analyzed this document: {document}
+    
+    The error-proneness of the document is defined by the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+    
+    The accuracy index of this document was: {accuracy_index}
+    
+    Your previous summary of the document was: {previous_summary}
+    
+    The user, a client who is paying you top-dollar to read the document and understand and convey the information clearly, now has a followup question on this document: {question}
+    
+    Please answer their question based on the document. Be specific and reference relevant parts of the document. Make sure to use clear language.
+    
+    """
+    
+    showReasoning = False
+
+    print("The model will think for a bit to ensure a good answer. Would you like to show the thinking (May clog up terminal)? Y/N")
+    while True:
+        selection = input("Selection: ")
+        if selection == "Y":
+            showReasoning = True
+            break
+        elif selection == "N":
+            break
+        print("Invalid selection, please type Y or N")
+    
+    
+    model = ChatOllama(model="deepseek-r1", streaming=True, reasoning=True)
+    
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | model
+    
+    inputs = {"accuracy_index": accuracy, "document": text}
+    
+    summary_text = ""
+    
+    for chunk in chain.stream(inputs):
+        # Check for reasoning (thinking) tokens
+        # These are usually in additional_kwargs when reasoning=True
+        reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+        if reasoning and showReasoning:
+            print(f"\033[90m{reasoning}\033[0m", end="", flush=True)
+        
+        # Check for the actual answer tokens
+        content = chunk.content
+        if content:
+            print(content, end="", flush=True)
+            summary_text += content
+    
+    followup_prompt = ChatPromptTemplate.from_template(followup_template)
+    followup_chain = followup_prompt | model
+    
+    while True: # fix formatting here, we want it to match previous messages
+        user_input = input("\nAsk a followup question (or type 'exit' to quit): ").strip()
+        
+        if user_input.lower() in ['exit', 'quit', 'q', '']:
+            print("Exiting followup mode. Goodbye!")
+            break
+        
+        followup_inputs = {
+            "accuracy_index": accuracy,
+            "document": text,
+            "previous_summary": summary_text,
+            "question": user_input
+        }
+        
+        for chunk in followup_chain.stream(followup_inputs):
+            # Check for reasoning (thinking) tokens
+            reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+            if reasoning and showReasoning:
+                print(f"\033[90m{reasoning}\033[0m", end="", flush=True)
+            
+            # Check for the actual answer tokens
+            content = chunk.content
+            if content:
+                print(content, end="", flush=True)
+    
     sys.exit()
     
     
