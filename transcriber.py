@@ -190,9 +190,9 @@ You are an expert writer and document analyzer. You are given a document of crit
 
 The requested format of the summary should be as follows, with the <CUSTOMIZABLE> section allowing you to put whatever you feel is necessary in that section. The <CUSTOMIZABLE> section should not be too long, and is optional. The template ends at <END>.
 
-Sections labelled with <> should not be included in the final report, but are there for your own convenience. The template is shown below:
+You should not include the headers themselves that start with <> in the template below. They exist solely to tell you about the formatting. The template is shown below:
 
-YOU MUST STRICTLY FOLLOW THE FORMAT BELOW DURING YOUR RESPONSE.
+YOU MUST STRICTLY FOLLOW THE FORMAT BELOW DURING YOUR RESPONSE. ANY DEVIANCE FROM THE FORMAT BELOW WILL RESULT IN YOU LOSING YOUR JOB.
 
 Brief Overview:
 
@@ -210,7 +210,9 @@ Most Important Parts:
 
 The text may contain some spelling errors, and it is your job to account for them and use judgement to figure out what could be meant by them.
 
-The error-proneness of the document is defined by the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+
+The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
 
 The user may ask you followup questions, or ask you to provide more details about the document after your initial report is submitted. Please respond only with the report that you are requested to make, in the format specified above.
 
@@ -226,7 +228,9 @@ Here is the document: {document}
     
     You are an expert writer and document analyzer. You previously analyzed this document: {document}
     
-    The error-proneness of the document is defined by the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+
+    The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
     
     The accuracy index of this document was: {accuracy_index}
     
@@ -260,6 +264,8 @@ Here is the document: {document}
     
     summary_text = ""
     
+    print("Initializing Response (May take a bit to get started)...\n")
+    
     for chunk in chain.stream(inputs):
         # Check for reasoning (thinking) tokens
         # These are usually in additional_kwargs when reasoning=True
@@ -277,7 +283,7 @@ Here is the document: {document}
     followup_chain = followup_prompt | model
     
     while True: # fix formatting here, we want it to match previous messages
-        user_input = input("\nAsk a followup question (or type 'exit' to quit): ").strip()
+        user_input = input("\nAsk a followup question (or type 'exit' to quit) >>> ").strip()
         
         if user_input.lower() in ['exit', 'quit', 'q', '']:
             print("Exiting followup mode. Goodbye!")
