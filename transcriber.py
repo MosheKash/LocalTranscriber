@@ -113,9 +113,21 @@ def transcribe(path: Path):
         if selected_model in models:
             model_name = models[selected_model]
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"\nSelected Model {model_name} on {device.upper()}. Loading model...")
-            
-            model = whisper.load_model(model_name, device=device)
+            print(f"\nAttempting to load model {model_name} on {device.upper()}...")
+
+            try:
+                model = whisper.load_model(model_name, device=device)
+
+            except RuntimeError as e:
+                # Catch CUDA out-of-memory errors and fall back to CPU
+                if device == "cuda" and "out of memory" in str(e).lower():
+                    print("⚠️ CUDA out of memory. Falling back to CPU...")
+                    torch.cuda.empty_cache()
+                    device = "cpu"
+                    model = whisper.load_model(model_name, device=device)
+                else:
+                    raise
+
             
             print("-" * 30)
             print("TRANSCRIPTION STARTING")
@@ -178,7 +190,7 @@ def transcribe(path: Path):
         else:
             print("Please input a digit 0-9 to select a model")
 
-def summarize(accuracy, text): # adjust the template to remove the tags, and the introductions. Also adjust the notion of the accuracy index to strictly mean the accuracy of the transcription, not of the factual information
+def summarize(accuracy, text):
     
     accuracy -= 1
     if accuracy == -1: # 0 corresponds to turbo, which is roughly as accurate as large, so we are going to set it to be of the highest accuracy for simplicity's sake.
@@ -186,43 +198,41 @@ def summarize(accuracy, text): # adjust the template to remove the tags, and the
     
     template = """
 
-You are an expert writer and document analyzer. You are given a document of critical importance by a client who is paying you top-dollar to read it, and then compose a summary of the document.
+    You are an expert writer and document analyzer. You are given a document of critical importance by a client who is paying you top-dollar to read it, and then compose a summary of the document.
 
-The requested format of the summary should be as follows, with the <CUSTOMIZABLE> section allowing you to put whatever you feel is necessary in that section. The <CUSTOMIZABLE> section should not be too long, and is optional. The template ends at <END>.
+    The requested format of the summary should be as follows, with the <CUSTOMIZABLE> section allowing you to put whatever you feel is necessary in that section. The <CUSTOMIZABLE> section should not be too long, and is optional. The template ends at <END>.
 
-You should not include the headers themselves that start with <> in the template below. They exist solely to tell you about the formatting. The template is shown below:
+    You should not include the headers themselves that start with <> in the template below. They exist solely to tell you about the formatting. The template is shown below:
 
-YOU MUST STRICTLY FOLLOW THE FORMAT BELOW DURING YOUR RESPONSE. ANY DEVIANCE FROM THE FORMAT BELOW WILL RESULT IN YOU LOSING YOUR JOB.
+    YOU MUST STRICTLY FOLLOW THE FORMAT BELOW DURING YOUR RESPONSE. ANY DEVIANCE FROM THE FORMAT BELOW WILL RESULT IN YOU LOSING YOUR JOB.
 
-Brief Overview:
+    Brief Overview:
 
-Important Ideas:
+    Important Ideas:
 
-- Bullet points
+    - Bullet points
 
-Most Important Parts:
+    Most Important Parts:
 
-- Excerpts in the form of bullet points
+    - Excerpts in the form of bullet points
 
-<CUSTOMIZABLE>
+    <CUSTOMIZABLE>
 
-<END>
+    <END>
 
-The text may contain some spelling errors, and it is your job to account for them and use judgement to figure out what could be meant by them.
+    The text may contain some spelling errors, and it is your job to account for them and use judgement to figure out what could be meant by them.
 
-The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
 
-The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
+    The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
 
-The user may ask you followup questions, or ask you to provide more details about the document after your initial report is submitted. Please respond only with the report that you are requested to make, in the format specified above.
+    The user may ask you followup questions, or ask you to provide more details about the document after your initial report is submitted. Please respond only with the report that you are requested to make, in the format specified above.
 
-Here is the accuracy index: {accuracy_index}
+    Here is the accuracy index: {accuracy_index}
 
-Here is the document: {document}
+    Here is the document: {document}
 
-"""
-
-    # clarify what the accuracy index means and make sure its only the accuracy of transcription
+    """
 
     followup_template = """
     
