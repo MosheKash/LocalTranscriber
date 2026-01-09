@@ -4,13 +4,20 @@
 import os
 from pathlib import Path
 import yt_dlp
-import whisper
 import json
 import torch
+from omegaconf.listconfig import ListConfig
+from omegaconf.dictconfig import DictConfig
+import time
+
+os.environ["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
+
 import sys
 import textwrap
+import whisperx
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
+from whisperx.diarize import DiarizationPipeline
 
 # General Overview:
 
@@ -94,18 +101,48 @@ def fetch_file_local():
 def transcribe(path: Path):
     print("Select a model to use. Faster models are often less accurate. For more information on models, especially on required VRAM, see this link: https://github.com/openai/whisper\n")
     print("If the audio is english only, I would recommend using an English only model for higher accuracy\n")
-    print("1. Tiny")
-    print("2. Tiny (English Only)")
-    print("3. Base")
-    print("4. Base (English Only)")
-    print("5. Small")
-    print("6. Small (English Only)")
-    print("7. Medium")
+    print("1. Tiny (English Only)")
+    print("2. Tiny")
+    print("3. Base (English Only)")
+    print("4. Base")
+    print("5. Small (English Only)")
+    print("6. Small")
+    print("7. Distil Small (English Only)")
     print("8. Medium (English Only)")
-    print("9. Large")
-    print("0. Turbo\n")
-    
-    models = {'1': "tiny", '2': 'tiny.en', '3': 'base', '4': 'base.en', '5': 'small', '6': 'small.en', '7': 'medium', '8': 'medium.en', '9': 'large', '0': 'turbo'}
+    print("9. Medium")
+    print("10. Distil Medium (English Only)")
+    print("11. Large v1")
+    print("12. Large v2")
+    print("13. Large v3")
+    print("14. Large (alias v3)")
+    print("15. Distil Large v2")
+    print("16. Distil Large v3")
+    print("17. Distil Large v3.5")
+    print("18. Large v3 Turbo")
+    print("19. Turbo\n")
+
+    models = {
+        '1': 'tiny.en',
+        '2': 'tiny',
+        '3': 'base.en',
+        '4': 'base',
+        '5': 'small.en',
+        '6': 'small',
+        '7': 'distil-small.en',
+        '8': 'medium.en',
+        '9': 'medium',
+        '10': 'distil-medium.en',
+        '11': 'large-v1',
+        '12': 'large-v2',
+        '13': 'large-v3',
+        '14': 'large',
+        '15': 'distil-large-v2',
+        '16': 'distil-large-v3',
+        '17': 'distil-large-v3.5',
+        '18': 'large-v3-turbo',
+        '19': 'turbo',
+    }
+
     
     while True:
         selected_model = input("Desired Model: ")
@@ -115,26 +152,39 @@ def transcribe(path: Path):
             device = "cuda" if torch.cuda.is_available() else "cpu"
             print(f"\nAttempting to load model {model_name} on {device.upper()}...")
 
-            try:
-                model = whisper.load_model(model_name, device=device)
-
-            except RuntimeError as e:
-                # Catch CUDA out-of-memory errors and fall back to CPU
-                if device == "cuda" and "out of memory" in str(e).lower():
-                    print("⚠️ CUDA out of memory. Falling back to CPU...")
-                    torch.cuda.empty_cache()
-                    device = "cpu"
-                    model = whisper.load_model(model_name, device=device)
-                else:
-                    raise
-
-            
+            model = whisperx.load_model(model_name, device=device, compute_type="float16", download_root="LocalWhisperModels")
+            batch_size = 16 
+            audio = whisperx.load_audio(path)
             print("-" * 30)
             print("TRANSCRIPTION STARTING")
             print("Progress will be printed below as it processes:")
             print("-" * 30)
+
+            try:
+                result = model.transcribe(audio, batch_size=batch_size, verbose=True)
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower() and device == "cuda":
+                    print("CUDA OOM during transcription. Retrying with batch_size=1...")
+                    torch.cuda.empty_cache()
+                    
+                    try:
+                        # Try again on GPU but with minimum memory footprint
+                        result = model.transcribe(audio, batch_size=1, verbose=True)
+                    except RuntimeError:
+                        print("Still OOM. Falling back to CPU...")
+                        torch.cuda.empty_cache()
+                        # Reload model on CPU
+                        model = whisperx.load_model(model_name, device="cpu", download_root="LocalWhisperModels")
+                        result = model.transcribe(audio, batch_size=1, verbose=True)
+                else:
+                    raise e
             
-            result = model.transcribe(str(path), verbose=True)
+            print("Base Transcription Done, Aligning...\n")
+            
+            model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+            result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+            torch.cuda.empty_cache()
+            result["text"] = "".join([segment["text"] for segment in result["segments"]])
 
             print("-" * 30)
             print("Transcription complete, saving file...")
@@ -188,13 +238,9 @@ def transcribe(path: Path):
                 print("Invalid selection, please type Y or N")
             
         else:
-            print("Please input a digit 0-9 to select a model")
+            print("Please input a number 1-9 to select a model")
 
 def summarize(accuracy, text):
-    
-    accuracy -= 1
-    if accuracy == -1: # 0 corresponds to turbo, which is roughly as accurate as large, so we are going to set it to be of the highest accuracy for simplicity's sake.
-        accuracy = 9
     
     template = """
 
@@ -222,7 +268,7 @@ def summarize(accuracy, text):
 
     The text may contain some spelling errors, and it is your job to account for them and use judgement to figure out what could be meant by them.
 
-    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 1 to 19, where 19 is the most accurate and 1 is the least accurate.
 
     The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
 
@@ -238,7 +284,7 @@ def summarize(accuracy, text):
     
     You are an expert writer and document analyzer. You previously analyzed this document: {document}
     
-    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 0 to 9, where 9 is the most accurate and 0 is the least accurate.
+    The document is a transcription of a video. The transcription may have errors in the words themselves. This is measured by the the accuracy index, which is given to you along with the document. It is an integer ranging from 1 to 19, where 19 is the most accurate and 1 is the least accurate.
 
     The accuracy index only makes a claim about the accuracy of the transcription. It says nothing about the accuracy of the content of the document.
     
@@ -265,18 +311,32 @@ def summarize(accuracy, text):
         print("Invalid selection, please type Y or N")
     
     
-    model = ChatOllama(model="deepseek-r1", streaming=True, reasoning=True)
+    print(f"Document length: {len(text)} characters")
     
+    t1 = time.time()
+    model = ChatOllama(model="deepseek-r1", streaming=True, reasoning=True)
+    print(f"Model init took: {time.time() - t1:.2f}s")
+    
+    t2 = time.time()
     prompt = ChatPromptTemplate.from_template(template)
     chain = prompt | model
+    print(f"Chain creation took: {time.time() - t2:.2f}s")
     
     inputs = {"accuracy_index": accuracy, "document": text}
     
+    print("Waiting for first token...")
+    t3 = time.time()
+
     summary_text = ""
     
     print("Initializing Response (May take a bit to get started)...\n")
+    first_token_received = False  # Flag to print only once
     
     for chunk in chain.stream(inputs):
+        if not first_token_received:
+            print(f"First token received after: {time.time() - t3:.2f}s")
+            first_token_received = True
+
         # Check for reasoning (thinking) tokens
         # These are usually in additional_kwargs when reasoning=True
         reasoning = chunk.additional_kwargs.get("reasoning_content", "")
