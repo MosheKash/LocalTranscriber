@@ -19,6 +19,35 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from whisperx.diarize import DiarizationPipeline
 
+import warnings
+import logging
+
+# ---------------------------------------------------------------------------------
+# Supresses various warnings that seemingly do not affect the script.
+# From my research, these errors stem from WhisperX, and there is nothing I can do.
+# Am suppressing them for the sake of the user experience.
+# ---------------------------------------------------------------------------------
+
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*pyannote.audio.*")
+warnings.filterwarnings("ignore", message=".*torch.*")
+
+# Reduce logging verbosity
+logging.getLogger("whisperx").setLevel(logging.WARNING)
+logging.getLogger("lightning_fabric").setLevel(logging.ERROR)
+logging.getLogger("pyannote").setLevel(logging.ERROR)
+
+# Suppress TF32 warning
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+
+# Suppress Lightning Errors
+warnings.filterwarnings("ignore", message=".*Lightning automatically upgraded.*")
+warnings.filterwarnings("ignore", message=".*Model was trained with.*")
+warnings.filterwarnings("ignore", category=FutureWarning)
+logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
+logging.getLogger("lightning").setLevel(logging.ERROR)
+
 # General Overview:
 
 # 1. Ask for a YouTube Link, or for a local file (give path)
@@ -43,33 +72,41 @@ def fetch_file_youtube():
     if not os.path.exists("YouTubeAudioFiles"):
         print("Creating folder YouTubeAudioFiles in current directory...")
         os.makedirs("YouTubeAudioFiles")
+    
+    while True:
+    
+        print("Please paste your URL below:")
+        url = input("URL: ")
+        print(f"Fetching from YT at url: {url} ...")
         
-    print("Please paste your URL below:")
-    url = input("URL: ")
-    print(f"Fetched from YT at url {url}")
-    
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        try:
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
 
-        'outtmpl': os.path.join("YouTubeAudioFiles", '%(title)s.%(ext)s'),
-        'quiet': False,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+                'outtmpl': os.path.join("YouTubeAudioFiles", '%(title)s.%(ext)s'),
+                'quiet': False,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
 
-        original_path = Path(ydl.prepare_filename(info))
-        mp3_path = original_path.with_suffix('.mp3')
-    
-    
-    print(f"Successfully downloaded YouTube video to path {mp3_path}\n")
-    print("Preparing to transcribe...\n")
-    
-    transcribe(mp3_path)
+                original_path = Path(ydl.prepare_filename(info))
+                mp3_path = original_path.with_suffix('.mp3')
+            
+            
+            print(f"Successfully downloaded YouTube video to path {mp3_path}\n")
+            print("Preparing to transcribe...\n")
+        
+            transcribe(mp3_path)
+        
+        except Exception as e:
+            first_line = str(e).splitlines()[0] if str(e) else "Unknown error"
+            print(f"Error: {first_line}\n")
+
     
 def fetch_file_local():
     print(f"Please paste your path to the .mp3 file")
@@ -150,7 +187,7 @@ def transcribe(path: Path):
         if selected_model in models:
             model_name = models[selected_model]
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"\nAttempting to load model {model_name} on {device.upper()}...")
+            print(f"\nAttempting to load model {model_name} on {device.upper()}. If there are warnings below about model training, feel free to ignore them. They come from WhisperX and are beyond my control. In my testing, they have had no impacts on anything.")
 
             model = whisperx.load_model(model_name, device=device, compute_type="float16", download_root="LocalWhisperModels")
             batch_size = 16 
@@ -181,8 +218,13 @@ def transcribe(path: Path):
             
             print("Base Transcription Done, Aligning...\n")
             
-            model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
-            result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+            try:
+                model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+                result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+            except Exception as e:
+                first_line = str(e).splitlines()[0] if str(e) else "Unknown error"
+                print(f"Error: {first_line}\n")
+                
             torch.cuda.empty_cache()
             result["text"] = "".join([segment["text"] for segment in result["segments"]])
 
@@ -307,6 +349,7 @@ def summarize(accuracy, text):
             showReasoning = True
             break
         elif selection == "N":
+            print("Thinking...")
             break
         print("Invalid selection, please type Y or N")
     

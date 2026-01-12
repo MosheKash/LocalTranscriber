@@ -2,7 +2,7 @@
 
 A **fully local**, privacy‑friendly video transcription and summarization tool powered by **OpenAI Whisper**, **PyTorch**, **LangChain**, and **DeepSeek R1**.
 
-No cloud uploads. No subscriptions. Just fast, high‑quality transcription and summaries—right on your machine.
+No cloud uploads. No subscriptions. Just fast, high‑quality transcription and summaries, right on your machine.
 
 > Built and maintained by **Moshe Kashlinsky**
 
@@ -66,7 +66,7 @@ YouTubeAudioFiles/       # Audio pulled from YouTube videos
 TranscribedAudioFiles/   # Final transcriptions and summaries
 ```
 
-No manual setup required—everything is handled for you.
+No manual setup required - everything is handled for you.
 
 ---
 
@@ -82,7 +82,7 @@ Found a bug? Have an idea for a new feature?
 
 - Larger Whisper models = better accuracy (but slower)
 - A GPU will significantly speed up transcription
-- Long videos may take time—grab a coffee ☕
+- Long videos may take time - Grab a coffee ☕
 
 ---
 
