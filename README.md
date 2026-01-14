@@ -29,12 +29,21 @@ No cloud uploads. No subscriptions. Just fast, high‑quality transcription and 
 
 ## 🚀 Installation
 
-Clone the repository and create the Conda environment:
+### 1️⃣ Install Ollama
 
-```bash
+Follow the instructions for your OS at:
+👉 https://ollama.com
+
+### 2️⃣ Pull DeepSeek R1
+
+Once Ollama is installed, run:
+
+ollama pull deepseek-r1
+
+### 3️⃣ Clone the repository and create the Conda environment
 conda env create -f environment.yml
 conda activate localtranscriber
-```
+
 
 That’s it! You’re ready to go.
 
