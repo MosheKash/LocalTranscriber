@@ -38,12 +38,15 @@ Follow the instructions for your OS at:
 
 Once Ollama is installed, run:
 
+```bash
 ollama pull deepseek-r1
+```
 
 ### 3️⃣ Clone the repository and create the Conda environment
+```bash
 conda env create -f environment.yml
 conda activate localtranscriber
-
+```
 
 That’s it! You’re ready to go.
 
